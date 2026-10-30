@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AdaptiveTutor</title><style>
+:root{--bg:#f6f7fb;--c:#fff;--t:#1d2333;--m:#6b7390;--p:#4f46e5;--b:#e3e6f0;--g:#16a34a;--r:#dc2626;--y:#d97706}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1220;--c:#181c30;--t:#e8ebf7;--m:#9aa2c0;--b:#2a2f4a}}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--t)}
+header{padding:14px 20px;background:var(--c);border-bottom:1px solid var(--b);display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+h1{font-size:18px;margin:0;color:var(--p)}select,button,input,textarea{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--b);background:var(--c);color:var(--t)}
+button{cursor:pointer;background:var(--p);color:#fff;border:0}button.s{background:var(--c);color:var(--t);border:1px solid var(--b)}
+nav{display:flex;gap:6px;padding:10px 20px;flex-wrap:wrap}nav button{background:var(--c);color:var(--t);border:1px solid var(--b)}nav button.on{background:var(--p);color:#fff}
+main{padding:0 20px 40px;max-width:980px;margin:auto}.card{background:var(--c);border:1px solid var(--b);border-radius:12px;padding:14px;margin:10px 0}
+.pre{white-space:pre-wrap;line-height:1.55}.m{color:var(--m);font-size:13px}.tag{padding:2px 8px;border-radius:99px;font-size:12px;color:#fff}
+.High,.weak,.bad{background:var(--r)}.Medium,.developing{background:var(--y)}.Low,.strong,.ok{background:var(--g)}.untested{background:var(--m)}
+.bar{height:8px;background:var(--b);border-radius:9px;overflow:hidden}.bar i{display:block;height:100%;background:var(--p)}
+.me{background:var(--p);color:#fff;margin-left:15%}.bot{margin-right:10%}.msg{padding:10px 14px;border-radius:12px;margin:8px 0}.bot{background:var(--c);border:1px solid var(--b)}
+.row{display:flex;gap:8px}.row input,.row textarea{flex:1}label.o{display:block;padding:6px 8px;border:1px solid var(--b);border-radius:8px;margin:4px 0;cursor:pointer}
+details{margin-top:6px}#doc{max-height:420px;overflow:auto}.err{color:var(--r)}
+</style></head><body>
+<header><h1>🎓 AdaptiveTutor</h1><select id="sel" onchange="pick()"></select>
+<input type="file" id="f" accept=".pdf,.docx,.txt"><button onclick="up()">Upload</button><span id="msg" class="m"></span></header>
+<nav id="nav"></nav><main id="v"></main>
+<script>
+const $=id=>document.getElementById(id),esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+let D=null,T=null,tab='doc';const tabs={doc:'📄 Document',chat:'💬 Tutor',quiz:'📝 Test',ana:'📊 Weak-topic analysis',rec:'🎯 Recommendations & roadmap'};
+async function api(p,b){const r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{});const j=await r.json();if(!r.ok)throw new Error(j.error||'Error');return j}
+$('nav').innerHTML=Object.entries(tabs).map(([k,v])=>`<button id="t_${k}" onclick="go('${k}')">${v}</button>`).join('');
+async function load(){const d=await api('/api/docs');$('sel').innerHTML=d.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');D=d.length?+$('sel').value:null;go(tab)}
+function pick(){D=+$('sel').value;go(tab)}
+async function up(){const f=$('f').files[0];if(!f){$('msg').textContent='Choose a file first.';return}const fd=new FormData();fd.append('file',f);$('msg').textContent='Uploading…';
+ const r=await fetch('/api/upload',{method:'POST',body:fd}),j=await r.json();$('msg').innerHTML=r.ok?`✅ Indexed ${j.sections} sections`:`<span class="err">${esc(j.error)}</span>`;if(r.ok){await load();$('sel').value=j.id;pick()}}
+function go(t){tab=t;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.id=='t_'+t));if(!D){$('v').innerHTML='<div class="card">Upload a PDF, DOCX or TXT to begin.</div>';return}({doc,chat,quiz,ana,rec})[t]()}
+async function doc(){const j=await api('/api/doc/'+D);$('v').innerHTML=`<div class="card"><b>${esc(j.name)}</b><div class="m">${j.chunks.length} sections detected</div><div>${j.chunks.map(c=>`<span class="tag untested" style="margin:2px;display:inline-block">${esc(c.concept)}</span>`).join('')}</div></div><div class="card pre" id="doc">${esc(j.text)}</div>`}
+async function chat(){const h=await api('/api/history/'+D);$('v').innerHTML=`<div id="log">${h.map(bub).join('')}</div><div class="row"><input id="q" placeholder="Ask about this document…" onkeydown="if(event.key=='Enter')ask()"><button onclick="ask()">Ask</button></div>`}
+function bub(m){return `<div class="msg pre ${m.role=='user'?'me':'bot'}">${esc(m.content)}${(m.sources||[]).length?`<details><summary class="m">Sources (${m.sources.length})</summary>${m.sources.map(s=>`<div class="m"><b>${esc(s.concept)}</b>: “${esc(s.excerpt)}…”</div>`).join('')}</details>`:''}</div>`}
+async function ask(){const q=$('q').value.trim();if(!q)return;$('q').value='';$('log').insertAdjacentHTML('beforeend',bub({role:'user',content:q}));try{const j=await api('/api/ask',{doc_id:D,question:q});$('log').insertAdjacentHTML('beforeend',bub({role:'a',content:j.answer,sources:j.sources}))}catch(e){$('log').insertAdjacentHTML('beforeend',`<div class="err">${esc(e.message)}</div>`)}}
+async function quiz(){$('v').innerHTML=`<div class="card row"><select id="n"><option>5</option><option selected>8</option><option>12</option></select><button onclick="mk()">Generate test from this document (adapts to weak topics)</button></div><div id="qs"></div>`}
+async function mk(){try{T=await api('/api/quiz',{doc_id:D,n:$('n').value})}catch(e){$('qs').innerHTML=`<div class="err">${esc(e.message)}</div>`;return}
+ $('qs').innerHTML=T.questions.map((q,i)=>`<div class="card"><b>${i+1}.</b> ${esc(q.q)}<div class="m">Topic: ${esc(q.concept)}</div>${q.options.map(o=>`<label class="o"><input type="radio" name="q${q.id}" value="${esc(o)}"> ${esc(o)}</label>`).join('')}</div>`).join('')+'<button onclick="sub()">Submit</button>'}
+async function sub(){const a={};T.questions.forEach(q=>{const x=document.querySelector(`input[name=q${q.id}]:checked`);if(x)a[q.id]=x.value});const j=await api('/api/submit',{test_id:T.test_id,answers:a});
+ $('qs').innerHTML=`<div class="card"><h3>Score: ${j.score}/${j.total}</h3></div>`+j.results.map(r=>`<div class="card"><span class="tag ${r.correct?'ok':'bad'}">${r.correct?'Correct':'Wrong'}</span> ${esc(r.q)}<div class="m">Your answer: ${esc(r.yours||'—')} · Correct: ${esc(r.answer)}</div>${r.how_to_solve?`<details open><summary><b>Concept & how to solve (${esc(r.concept)})</b></summary><div class="pre">${esc(r.how_to_solve)}</div></details>`:''}</div>`).join('')+'<button onclick="go(\'ana\')">See weak-topic analysis</button>'}
+async function ana(){const j=await api('/api/analysis/'+D);$('v').innerHTML=`<div class="card"><b>Test history</b><div class="m">${j.history.map(h=>`Test ${h.test}: ${h.pct}%`).join(' → ')||'No tests yet'}${j.trend!=null?` · trend ${j.trend>=0?'+':''}${j.trend} pts`:''}</div></div>`+
+ (j.why_low.length?`<div class="card"><b>Why your marks are low</b>${j.why_low.map(w=>`<div class="m">• ${esc(w)}</div>`).join('')}</div>`:'')+
+ j.concepts.map(c=>`<div class="card"><span class="tag ${c.status}">${c.status}</span> <b>${esc(c.concept)}</b> <span class="m">${c.mastery==null?'not tested':Math.round(c.mastery*100)+'% · '+c.correct+'/'+c.attempts}</span><div class="bar"><i style="width:${(c.mastery||0)*100}%"></i></div></div>`).join('')}
+async function rec(){const j=await api('/api/recs/'+D);$('v').innerHTML=`<div class="card"><b>🗺️ Study roadmap (prerequisites first)</b><div class="pre">${j.roadmap.map(r=>`${r.step}. ${r.status=='done'?'✅':'⬜'} ${esc(r.concept)}  [${r.priority}]`).join('\n')||'Take a test to generate a roadmap.'}</div></div>`+
+ j.recommendations.map(r=>`<div class="card"><span class="tag ${r.priority}">${r.priority}</span> <b>${esc(r.concept)}</b> <span class="m">${esc(r.reason)} · ${r.status}</span>
+ <div class="m"><b>Evidence:</b> ${r.evidence.map(esc).join(' • ')}</div><div><b>Activity:</b> ${esc(r.activity)}</div><div><b>Follow-up:</b> ${esc(r.follow_up)}</div>
+ <div class="row" style="margin-top:8px"><button onclick="les(${r.chunk_id})">📖 Full lesson</button><button class="s" onclick="done(${r.chunk_id})">Mark ${r.status=='done'?'pending':'done'}</button></div><div class="pre" id="l${r.chunk_id}"></div></div>`).join('')}
+async function les(c){const j=await api(`/api/lesson/${D}/${c}`);$('l'+c).textContent=j.lesson}
+async function done(c){const j=await api('/api/recs/'+D);const s=j.recommendations.find(x=>x.chunk_id==c).status=='done'?'pending':'done';await api(`/api/recs/${D}/${c}/status`,{status:s});rec()}
+load();
+</script></body></html>
